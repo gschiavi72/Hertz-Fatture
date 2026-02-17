@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% block title %}Lavori Pronti{% endblock %}
+
+{% block content %}
+<div class="content-card">
+    <h2>✅ Lavori Pronti per Fatturazione</h2>
+    <p style="margin-bottom: 20px; color: #666;">
+        Questi lavori hanno sia il preventivo che il Purchase Order associati e sono pronti per generare la fattura XML.
+    </p>
+    
+    {% if stats.lavori_pronti > 0 %}
+    <div style="margin-bottom: 20px;">
+        <button class="btn btn-success" onclick="generaTutti()">
+            ⚡ Genera Tutte le Fatture ({{ stats.lavori_pronti }})
+        </button>
+    </div>
+    
+    <div id="generaResults"></div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Pratica Hertz</th>
+                <th>PO Number</th>
+                <th>Targa</th>
+                <th>Veicolo</th>
+                <th>Totale</th>
+                <th>Tipo</th>
+                <th>Azioni</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for match in stats.matches %}
+            <tr id="row-{{ match.preventivo.pratica_hertz }}">
+                <td><strong>{{ match.preventivo.pratica_hertz }}</strong></td>
+                <td>{{ match.po.po_number }}</td>
+                <td>{{ match.preventivo.targa or match.po.targa }}</td>
+                <td style="font-size: 0.85em;">{{ match.po.model }}</td>
+                <td><strong>€ {{ "%.2f"|format(match.preventivo.totale * 1.22) }}</strong></td>
+                <td>
+                    {% if match.po.has_tyres %}
+                    <span class="badge badge-warning">GOMME (HG)</span>
+                    {% else %}
+                    <span class="badge badge-primary">MECCANICA (HM)</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn" onclick="generaFattura('{{ match.preventivo.pratica_hertz }}')">
+                        📄 Genera Fattura
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <h3>Nessun lavoro pronto</h3>
+        <p style="margin-top: 10px;">
+            Carica preventivi e purchase order per vedere qui i lavori pronti da fatturare.
+        </p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="content-card">
+    <h2>⏳ Documenti in Attesa di Associazione</h2>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 20px;">
+        <div>
+            <h3 style="color: #667eea; margin-bottom: 15px;">
+                📄 Preventivi senza PO ({{ stats.prev_in_attesa|length }})
+            </h3>
+            {% if stats.prev_in_attesa %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Pratica</th>
+                        <th>Targa</th>
+                        <th>Totale</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prev in stats.prev_in_attesa %}
+                    <tr>
+                        <td><strong>{{ prev.pratica_hertz }}</strong></td>
+                        <td>{{ prev.targa or '-' }}</td>
+                        <td>€ {{ "%.2f"|format(prev.totale) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="color: #999;">Nessun preventivo in attesa</p>
+            {% endif %}
+        </div>
+        
+        <div>
+            <h3 style="color: #28a745; margin-bottom: 15px;">
+                📋 PO senza Preventivo ({{ stats.po_in_attesa|length }})
+            </h3>
+            {% if stats.po_in_attesa %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>PO</th>
+                        <th>Pratica</th>
+                        <th>Targa</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for po in stats.po_in_attesa %}
+                    <tr>
+                        <td><strong>{{ po.po_number }}</strong></td>
+                        <td>{{ po.pratica_hertz }}</td>
+                        <td>{{ po.targa or '-' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="color: #999;">Nessun PO in attesa</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function generaFattura(praticaHertz) {
+    if (!confirm('Generare la fattura per la pratica ' + praticaHertz + '?')) {
+        return;
+    }
+    
+    const row = document.getElementById('row-' + praticaHertz);
+    const originalHtml = row.innerHTML;
+    row.innerHTML = '<td colspan="7" style="text-align: center;"><div class="spinner" style="display: inline-block; width: 30px; height: 30px;"></div> Generazione in corso...</td>';
+    
+    fetch('/genera/' + praticaHertz, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess('Fattura generata: ' + data.filename);
+            row.style.background = '#d4edda';
+            setTimeout(() => {
+                row.remove();
+                location.reload();
+            }, 1500);
+        } else {
+            showError('Errore: ' + (data.error || 'Errore sconosciuto'));
+            row.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        showError('Errore durante la generazione: ' + error);
+        row.innerHTML = originalHtml;
+    });
+}
+
+function generaTutti() {
+    if (!confirm('Generare TUTTE le {{ stats.lavori_pronti }} fatture?')) {
+        return;
+    }
+    
+    showLoading('generaResults');
+    
+    fetch('/genera-tutti', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let html = '<div class="alert alert-success" style="margin: 20px 0;">';
+            html += `✅ Generate ${data.generated.length} fatture!<br><br>`;
+            
+            if (data.generated.length > 0) {
+                html += '<strong>File generati:</strong><ul style="margin-top: 10px;">';
+                data.generated.forEach(g => {
+                    html += `<li>${g.filename} - € ${g.totale.toFixed(2)}</li>`;
+                });
+                html += '</ul>';
+            }
+            
+            html += '</div>';
+            document.getElementById('generaResults').innerHTML = html;
+            
+            setTimeout(() => location.reload(), 3000);
+        } else {
+            showError('Errore durante la generazione multipla');
+            document.getElementById('generaResults').innerHTML = '';
+        }
+    })
+    .catch(error => {
+        showError('Errore: ' + error);
+        document.getElementById('generaResults').innerHTML = '';
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block title %}Configurazione{% endblock %}
+
+{% block content %}
+<div class="content-card">
+    <h2>⚙️ Configurazione Email</h2>
+    <p style="margin-bottom: 20px; color: #666;">
+        Configura l'accesso email per scaricare automaticamente i Purchase Order da Gmail.
+    </p>
+    
+    <form id="emailConfigForm" onsubmit="saveEmailConfig(event)">
+        <div class="form-group">
+            <label>📧 Email Gmail</label>
+            <input type="email" id="email" value="{{ email_config.email or '' }}" required>
+            <small style="color: #999; display: block; margin-top: 5px;">
+                La tua casella Gmail da cui scaricare i PO
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label>🔑 Password App Gmail</label>
+            <input type="password" id="password" value="{{ email_config.password or '' }}" required>
+            <small style="color: #999; display: block; margin-top: 5px;">
+                ⚠️ Usa una "Password per le App", non la password normale!<br>
+                Crea qui: <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color: #667eea;">myaccount.google.com/apppasswords</a>
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label>👤 Filtro Mittente</label>
+            <input type="text" id="mittente_filtro" value="{{ email_config.mittente_filtro or '' }}">
+            <small style="color: #999; display: block; margin-top: 5px;">
+                Cerca solo email da questo mittente (es: "maffucci")
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label>📋 Filtro Oggetto</label>
+            <input type="text" id="oggetto_filtro" value="{{ email_config.oggetto_filtro or 'Purchase order' }}">
+            <small style="color: #999; display: block; margin-top: 5px;">
+                Cerca solo email con questo oggetto (es: "Purchase order")
+            </small>
+        </div>
+        
+        <button type="submit" class="btn btn-success">💾 Salva Configurazione</button>
+    </form>
+    
+    {% if email_config.ultimo_controllo %}
+    <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+        <strong>Ultimo controllo email:</strong> {{ email_config.ultimo_controllo[:19] }}<br>
+        <strong>PO totali scaricati:</strong> {{ email_config.po_scaricati|length if email_config.po_scaricati else 0 }}
+    </div>
+    {% endif %}
+    
+    <div style="margin-top: 20px;">
+        <button class="btn btn-warning" onclick="resetPoScaricati()">
+            🔄 Reset Lista PO Scaricati
+        </button>
+        <small style="display: block; margin-top: 10px; color: #999;">
+            Utile se vuoi riscaricare PO già processati
+        </small>
+    </div>
+</div>
+
+<div class="content-card">
+    <h2>🔢 Numerazione Fatture</h2>
+    <p style="margin-bottom: 20px; color: #666;">
+        Gestisci i progressivi delle fatture per GOMME (HG) e MECCANICA (HM).
+    </p>
+    
+    <form id="numerazioneForm" onsubmit="updateNumerazione(event)">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 20px;">
+            <div style="padding: 20px; background: #fff3cd; border-radius: 8px;">
+                <h3 style="color: #856404; margin-bottom: 10px;">🔧 MECCANICA (HM)</h3>
+                <div style="font-size: 2em; font-weight: bold; color: #856404; margin-bottom: 15px;">
+                    {{ config.last_number_hm }}/HM
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label style="color: #856404; font-size: 0.9em;">Imposta numero corrente:</label>
+                    <input type="number" id="last_number_hm" value="{{ config.last_number_hm }}" min="0" 
+                           style="padding: 10px; border: 2px solid #ffc107; border-radius: 6px; font-size: 1.1em; font-weight: bold;">
+                </div>
+                <small style="color: #856404;">Prossimo numero: {{ config.last_number_hm + 1 }}/HM</small>
+            </div>
+            
+            <div style="padding: 20px; background: #d4edda; border-radius: 8px;">
+                <h3 style="color: #155724; margin-bottom: 10px;">🚗 GOMME (HG)</h3>
+                <div style="font-size: 2em; font-weight: bold; color: #155724; margin-bottom: 15px;">
+                    {{ config.last_number_hg }}/HG
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label style="color: #155724; font-size: 0.9em;">Imposta numero corrente:</label>
+                    <input type="number" id="last_number_hg" value="{{ config.last_number_hg }}" min="0" 
+                           style="padding: 10px; border: 2px solid #28a745; border-radius: 6px; font-size: 1.1em; font-weight: bold;">
+                </div>
+                <small style="color: #155724;">Prossimo numero: {{ config.last_number_hg + 1 }}/HG</small>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-success">💾 Aggiorna Numerazione</button>
+    </form>
+    
+    <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-top: 20px;">
+        <strong>Anno corrente:</strong> {{ config.year }}<br>
+        <small style="color: #999;">⚠️ I numeratori si resettano automaticamente a gennaio di ogni anno</small><br>
+        <small style="color: #dc3545; font-weight: 600; display: block; margin-top: 10px;">
+            ⚠️ ATTENZIONE: Modificare questi valori può causare conflitti con fatture già emesse. Usa con cautela!
+        </small>
+    </div>
+</div>
+
+<div class="content-card">
+    <h2>📄 Fatture Generate</h2>
+    <p style="margin-bottom: 20px; color: #666;">
+        Storico di tutte le fatture XML generate dal sistema.
+    </p>
+    
+    {% if fatture|length > 0 %}
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-danger" onclick="deleteAllFatture()">
+            🗑️ Elimina Tutte le Fatture ({{ fatture|length }})
+        </button>
+        
+        <div style="flex: 1; min-width: 200px;">
+            <label for="sortSelect" style="margin-right: 10px; font-weight: 600;">📊 Ordina per:</label>
+            <select id="sortSelect" onchange="sortTable()" 
+                    style="padding: 8px 12px; border: 2px solid #667eea; border-radius: 6px; font-size: 0.95em; cursor: pointer;">
+                <option value="data-desc">Data (più recente)</option>
+                <option value="data-asc">Data (più vecchia)</option>
+                <option value="numero-asc">Numero (crescente)</option>
+                <option value="numero-desc">Numero (decrescente)</option>
+                <option value="po-asc">PO (crescente)</option>
+                <option value="po-desc">PO (decrescente)</option>
+                <option value="targa-asc">Targa (A-Z)</option>
+                <option value="targa-desc">Targa (Z-A)</option>
+                <option value="pratica-asc">Pratica (crescente)</option>
+                <option value="pratica-desc">Pratica (decrescente)</option>
+                <option value="totale-asc">Totale (crescente)</option>
+                <option value="totale-desc">Totale (decrescente)</option>
+            </select>
+        </div>
+        
+        <small style="color: #999; width: 100%;">
+            ⚠️ Elimina tutte rimuove tutte le fatture dal sistema e i file XML
+        </small>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Numero</th>
+                <th>PO</th>
+                <th>Targa</th>
+                <th>Pratica</th>
+                <th>Totale</th>
+                <th>Data</th>
+                <th>Azioni</th>
+            </tr>
+        </thead>
+        <tbody id="fattureTableBody">
+            {% for f in fatture|reverse %}
+            <tr id="fattura-row-{{ f.filename }}">
+                <td>
+                    <strong>{{ f.numero_fattura }}/{{ f.tipo }}</strong>
+                </td>
+                <td>{{ f.po_number }}</td>
+                <td>{{ f.targa }}</td>
+                <td>{{ f.pratica_hertz }}</td>
+                <td><strong>€ {{ "%.2f"|format(f.totale) }}</strong></td>
+                <td style="font-size: 0.85em;">{{ f.data_generazione[:10] }}</td>
+                <td>
+                    <a href="/download/{{ f.filename }}" class="btn" style="padding: 6px 12px; font-size: 0.9em; text-decoration: none;">
+                        ⬇️ XML
+                    </a>
+                    <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.9em; margin-left: 5px;" 
+                            onclick="deleteFattura('{{ f.filename }}')">
+                        🗑️
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <h3>Nessuna fattura generata</h3>
+        <p style="margin-top: 10px;">
+            Le fatture generate appariranno qui.
+        </p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="content-card">
+    <h2>ℹ️ Informazioni Sistema</h2>
+    
+    <div style="padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h3 style="margin-bottom: 15px;">📋 Versione Software</h3>
+        <ul style="line-height: 2;">
+            <li><strong>Applicazione:</strong> Hertz Fatture v2.0</li>
+            <li><strong>Formato Numerazione:</strong> numero/HG o numero/HM</li>
+            <li><strong>Formato Output:</strong> XML Danea EasyFatt</li>
+            <li><strong>IVA Applicata:</strong> 22%</li>
+        </ul>
+        
+        <h3 style="margin: 20px 0 15px;">🔧 Funzionalità</h3>
+        <ul style="line-height: 2;">
+            <li>✅ Caricamento automatico PDF (preventivi e PO)</li>
+            <li>✅ Download automatico PO da email Gmail</li>
+            <li>✅ Associazione automatica preventivo + PO</li>
+            <li>✅ Generazione XML per Danea EasyFatt</li>
+            <li>✅ Distinzione GOMME (HG) vs MECCANICA (HM)</li>
+            <li>✅ Numerazione automatica separata per tipo</li>
+            <li>✅ Reset automatico numerazione ogni anno</li>
+        </ul>
+        
+        <h3 style="margin: 20px 0 15px;">📁 Cartelle</h3>
+        <ul style="line-height: 2;">
+            <li><strong>uploads/</strong> - File PDF caricati</li>
+            <li><strong>output/</strong> - Fatture XML generate</li>
+            <li><strong>hertz_data.json</strong> - Database principale</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function saveEmailConfig(event) {
+    event.preventDefault();
+    
+    const data = {
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        mittente_filtro: document.getElementById('mittente_filtro').value,
+        oggetto_filtro: document.getElementById('oggetto_filtro').value
+    };
+    
+    fetch('/save-email-config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showSuccess('✅ Configurazione salvata con successo!');
+        } else {
+            showError('❌ Errore durante il salvataggio');
+        }
+    })
+    .catch(error => {
+        showError('❌ Errore: ' + error);
+    });
+}
+
+function resetPoScaricati() {
+    if (!confirm('Resettare la lista dei PO scaricati?\n\nQuesto permetterà di riscaricare PO già processati.')) {
+        return;
+    }
+    
+    fetch('/reset-po-scaricati', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showSuccess('✅ Lista PO scaricati resettata!');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showError('❌ Errore durante il reset');
+        }
+    })
+    .catch(error => {
+        showError('❌ Errore: ' + error);
+    });
+}
+
+function updateNumerazione(event) {
+    event.preventDefault();
+    
+    const lastNumberHm = parseInt(document.getElementById('last_number_hm').value);
+    const lastNumberHg = parseInt(document.getElementById('last_number_hg').value);
+    
+    if (lastNumberHm < 0 || lastNumberHg < 0) {
+        showError('❌ I numeri devono essere positivi!');
+        return;
+    }
+    
+    if (!confirm(`Aggiornare la numerazione?\n\nMECCANICA (HM): ${lastNumberHm}\nGOMME (HG): ${lastNumberHg}\n\nLa prossima fattura sarà:\nHM: ${lastNumberHm + 1}/HM\nHG: ${lastNumberHg + 1}/HG`)) {
+        return;
+    }
+    
+    fetch('/update-numerazione', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            last_number_hm: lastNumberHm,
+            last_number_hg: lastNumberHg
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showSuccess('✅ Numerazione aggiornata con successo!');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showError('❌ Errore: ' + (result.error || 'Errore sconosciuto'));
+        }
+    })
+    .catch(error => {
+        showError('❌ Errore: ' + error);
+    });
+}
+
+function deleteFattura(filename) {
+    if (!confirm('Eliminare questa fattura?\n\nFile: ' + filename + '\n\n⚠️ ATTENZIONE:\n- La fattura sarà rimossa dal sistema\n- Il file XML sarà eliminato\n- La numerazione NON sarà modificata\n- Questa azione non può essere annullata!')) {
+        return;
+    }
+    
+    const row = document.getElementById('fattura-row-' + filename);
+    if (!row) {
+        showError('❌ Riga non trovata');
+        return;
+    }
+    
+    const originalHtml = row.innerHTML;
+    row.innerHTML = '<td colspan="7" style="text-align: center;"><div class="spinner" style="display: inline-block; width: 30px; height: 30px;"></div> Eliminazione in corso...</td>';
+    
+    fetch('/delete-fattura/' + encodeURIComponent(filename), {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess('✅ Fattura eliminata con successo!');
+            row.style.background = '#f8d7da';
+            setTimeout(() => {
+                row.remove();
+                // Controlla se la tabella è vuota
+                const tbody = document.getElementById('fattureTableBody');
+                if (tbody && tbody.querySelectorAll('tr').length === 0) {
+                    location.reload();
+                }
+            }, 1000);
+        } else {
+            showError('❌ Errore durante l\'eliminazione: ' + (data.error || 'Errore sconosciuto'));
+            row.innerHTML = originalHtml;
+        }
+    })
+    .catch(error => {
+        showError('❌ Errore: ' + error);
+        row.innerHTML = originalHtml;
+    });
+}
+
+function deleteAllFatture() {
+    const numFatture = document.querySelectorAll('#fattureTableBody tr').length;
+    
+    if (!confirm(`⚠️ ATTENZIONE - ELIMINAZIONE MASSIVA ⚠️\n\nStai per eliminare TUTTE le ${numFatture} fatture!\n\nQuesta operazione:\n✗ Elimina tutte le fatture dal database\n✗ Elimina tutti i file XML\n✗ NON può essere annullata\n✗ La numerazione rimane invariata\n\nSei ASSOLUTAMENTE sicuro?`)) {
+        return;
+    }
+    
+    if (!confirm(`ULTIMA CONFERMA!\n\nEliminare davvero tutte le ${numFatture} fatture?\n\nClicca OK per confermare l'eliminazione definitiva.`)) {
+        return;
+    }
+    
+    const tbody = document.getElementById('fattureTableBody');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px;"><div class="spinner" style="display: inline-block; width: 50px; height: 50px;"></div><p style="margin-top: 20px;">Eliminazione in corso...</p></td></tr>';
+    
+    fetch('/delete-all-fatture', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess(`✅ ${data.deleted} fatture eliminate con successo!`);
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showError('❌ Errore durante l\'eliminazione massiva: ' + (data.error || 'Errore sconosciuto'));
+            location.reload();
+        }
+    })
+    .catch(error => {
+        showError('❌ Errore: ' + error);
+        setTimeout(() => location.reload(), 2000);
+    });
+}
+
+function sortTable() {
+    const sortValue = document.getElementById('sortSelect').value;
+    const tbody = document.getElementById('fattureTableBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    
+    const [field, direction] = sortValue.split('-');
+    
+    rows.sort((a, b) => {
+        let aVal, bVal;
+        
+        switch(field) {
+            case 'numero':
+                // Estrae il numero dalla prima colonna (es: "5/HM" -> 5)
+                aVal = parseInt(a.cells[0].textContent.trim().split('/')[0]) || 0;
+                bVal = parseInt(b.cells[0].textContent.trim().split('/')[0]) || 0;
+                break;
+            case 'po':
+                aVal = a.cells[1].textContent.trim();
+                bVal = b.cells[1].textContent.trim();
+                break;
+            case 'targa':
+                aVal = a.cells[2].textContent.trim();
+                bVal = b.cells[2].textContent.trim();
+                break;
+            case 'pratica':
+                aVal = a.cells[3].textContent.trim();
+                bVal = b.cells[3].textContent.trim();
+                break;
+            case 'totale':
+                // Estrae il numero dal formato "€ 123.45"
+                aVal = parseFloat(a.cells[4].textContent.replace('€', '').replace(',', '.').trim()) || 0;
+                bVal = parseFloat(b.cells[4].textContent.replace('€', '').replace(',', '.').trim()) || 0;
+                break;
+            case 'data':
+                aVal = a.cells[5].textContent.trim();
+                bVal = b.cells[5].textContent.trim();
+                break;
+            default:
+                aVal = a.cells[0].textContent.trim();
+                bVal = b.cells[0].textContent.trim();
+        }
+        
+        // Comparazione
+        let comparison = 0;
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+            comparison = aVal - bVal;
+        } else {
+            comparison = String(aVal).localeCompare(String(bVal));
+        }
+        
+        return direction === 'asc' ? comparison : -comparison;
+    });
+    
+    // Riappendi le righe ordinate
+    rows.forEach(row => tbody.appendChild(row));
+    
+    // Feedback visivo
+    showSuccess(`✅ Tabella ordinata per ${field === 'numero' ? 'Numero' : field === 'po' ? 'PO' : field === 'targa' ? 'Targa' : field === 'pratica' ? 'Pratica' : field === 'totale' ? 'Totale' : 'Data'}`);
+}
+</script>
+{% endblock %}
