@@ -12,12 +12,6 @@ import imaplib
 import email
 from email.header import decode_header
 
-# Google Drive imports
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-import io
-
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', 'uploads')
 app.config['OUTPUT_FOLDER'] = os.environ.get('OUTPUT_FOLDER', 'outputs')
@@ -25,93 +19,6 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
-
-
-class GoogleDriveBackup:
-    """Gestisce il backup automatico dei file su Google Drive"""
-    
-    def __init__(self):
-        self.service = None
-        self.folder_id = None
-        self.enabled = False
-        self._init_drive()
-    
-    def _init_drive(self):
-        """Inizializza connessione a Google Drive"""
-        try:
-            # Cerca le credenziali nelle variabili d'ambiente
-            creds_json = os.environ.get('GOOGLE_DRIVE_CREDENTIALS')
-            folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
-            
-            if not creds_json or not folder_id:
-                print("⚠️ Google Drive backup disabilitato (credenziali mancanti)")
-                return
-            
-            # Parse delle credenziali JSON
-            creds_dict = json.loads(creds_json)
-            credentials = service_account.Credentials.from_service_account_info(
-                creds_dict,
-                scopes=['https://www.googleapis.com/auth/drive.file']
-            )
-            
-            self.service = build('drive', 'v3', credentials=credentials)
-            self.folder_id = folder_id
-            self.enabled = True
-            print("✅ Google Drive backup attivo!")
-            
-        except Exception as e:
-            print(f"⚠️ Errore init Google Drive: {e}")
-            self.enabled = False
-    
-    def upload_file(self, filepath, filename=None):
-        """Carica un file su Google Drive"""
-        if not self.enabled:
-            return None
-        
-        try:
-            if not filename:
-                filename = os.path.basename(filepath)
-            
-            # Metadata del file
-            file_metadata = {
-                'name': filename,
-                'parents': [self.folder_id]
-            }
-            
-            # Upload
-            media = MediaFileUpload(filepath, resumable=True)
-            file = self.service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id, name, webViewLink'
-            ).execute()
-            
-            print(f"✅ Backup su Drive: {filename}")
-            return file.get('id')
-            
-        except Exception as e:
-            print(f"⚠️ Errore backup {filename}: {e}")
-            return None
-    
-    def list_files(self, limit=100):
-        """Lista i file nella cartella backup"""
-        if not self.enabled:
-            return []
-        
-        try:
-            results = self.service.files().list(
-                q=f"'{self.folder_id}' in parents and trashed=false",
-                pageSize=limit,
-                fields="files(id, name, createdTime, size)"
-            ).execute()
-            return results.get('files', [])
-        except Exception as e:
-            print(f"⚠️ Errore lista file: {e}")
-            return []
-
-
-# Inizializza backup globale
-gdrive_backup = GoogleDriveBackup()
 
 
 class HertzProcessor:
@@ -587,9 +494,6 @@ Pratica Hertz: {prev['pratica_hertz']}"""
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(xml_string)
         
-        # Backup automatico su Google Drive
-        gdrive_backup.upload_file(filepath, filename)
-        
         self.data['fatture_generate'].append({
             'po_number': po['po_number'],
             'targa': targa,
@@ -722,9 +626,6 @@ Pratica Hertz: {prev['pratica_hertz']}"""
                                     with open(filepath, 'wb') as f:
                                         f.write(payload)
                                     
-                                    # Backup automatico PDF su Google Drive
-                                    gdrive_backup.upload_file(filepath, safe_filename)
-                                    
                                     try:
                                         doc, doc_type = self.process_pdf(filepath, safe_filename)
                                         if doc:
@@ -833,9 +734,6 @@ def upload_file():
             filename = secure_filename(file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
-            
-            # Backup automatico PDF su Google Drive
-            gdrive_backup.upload_file(filepath, filename)
             
             try:
                 doc, doc_type = processor.process_pdf(filepath, filename)
@@ -991,6 +889,44 @@ def delete_all_fatture():
 def clear_all():
     processor.clear_all()
     return jsonify({'success': True})
+
+@app.route('/sblocca-pratica/<pratica_hertz>', methods=['POST'])
+def sblocca_pratica(pratica_hertz):
+    """Sblocca una pratica già fatturata per poterla riassociare"""
+    try:
+        # Trova la fattura con questa pratica
+        fattura_da_eliminare = None
+        for f in processor.data['fatture_generate']:
+            if f.get('pratica_hertz') == pratica_hertz:
+                fattura_da_eliminare = f
+                break
+        
+        if not fattura_da_eliminare:
+            return jsonify({'error': 'Fattura non trovata'}), 404
+        
+        # Elimina la fattura dal JSON
+        processor.data['fatture_generate'] = [
+            f for f in processor.data['fatture_generate'] 
+            if f.get('pratica_hertz') != pratica_hertz
+        ]
+        
+        # Elimina il file XML se esiste
+        try:
+            xml_path = os.path.join(app.config['OUTPUT_FOLDER'], fattura_da_eliminare['filename'])
+            if os.path.exists(xml_path):
+                os.remove(xml_path)
+        except:
+            pass
+        
+        processor.save_data()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'Pratica {pratica_hertz} sbloccata! Ora puoi riassociare i documenti.'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/stats')
 def api_stats():
