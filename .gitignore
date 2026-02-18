@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+uploads/
+outputs/
+hertz_data.json
+*.log
+*.bat
+.DS_Store
